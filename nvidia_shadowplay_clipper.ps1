@@ -1,10 +1,9 @@
 $environmentVariable_FFMPEG = "FFMPEG_PATH"
 
-If (${Env:$environmentVariable_FFMPEG}){
-	$FFMPEG_filePath = $Env:environmentVariable_FFMPEG
-	
-} Else {
-	$FFMPEG_filePath = Read-Host "`nEnter the path to FFMPEG.exe".Trim('"', "'")
+$FFMPEG_filePath = [Environment]::GetEnvironmentVariable($environmentVariable_FFMPEG)
+
+If (-Not $FFMPEG_filePath) {
+	$FFMPEG_filePath = (Read-Host "`nEnter the path to FFMPEG.exe").Trim('"', "'")
 	Write-Host "`tRemembering path for next time..."
 	setx $environmentVariable_FFMPEG $FFMPEG_filePath > $Null
 }
@@ -14,7 +13,7 @@ $environmentVariable_NVIDIA = "NVIDIA_LAST_PATH"
 While ($True) {
     Do {
         If (${Env:$environmentVariable_NVIDIA}){
-			$folderPathInput = Read-Host "`nEnter input folder path (leave blank to re-use '${Env:$environmentVariable_NVIDIA}')".Trim('"', "'")
+			$folderPathInput = (Read-Host "`nEnter input folder path (leave blank to re-use '${Env:$environmentVariable_NVIDIA}')").Trim('"', "'")
 			
 			If ($folderPathInput){
 				$folderPath = $folderPathInput
@@ -119,23 +118,26 @@ While ($True) {
 				Break
 			}
 			
+			Try {
+				$description = $description -Replace '[\\/:*?"<>|]', "_"
+				
+				$outputFileBaseName = $file.BaseName -Replace "\.", "-" -Replace " - ", " " -Replace "-\d{2,3}-DVR", ""
+				$outputFileName = "$outputFileBaseName - $description$($file.Extension)"
+				
+				
+				$outputPath = Join-Path $file.DirectoryName $outputFileName
 
-            $description = $description -Replace '[\\/:*?"<>|]', "_"
-			
-			$outputFileBaseName = $file.BaseName -Replace "\.", "-" -Replace " - ", " " -Replace "-\d{2,3}-DVR", ""
-            $outputFileName = "$outputFileBaseName - $description$($file.Extension)"
-			
-			
-            $outputPath = Join-Path $file.DirectoryName $outputFileName
+				$FFMPEG_Args = @('-y', '-hide_banner', '-loglevel', 'error', '-i', $file.FullName, '-ss', $startTime, '-map', '0')
+				If ($endTime) { $FFMPEG_Args += @('-to', $endTime) }
+				$FFMPEG_Args += @('-c', 'copy', $outputPath)
 
-            $FFMPEG_filePathArgs = @('-y', '-hide_banner', '-loglevel', 'error', '-i', $file.FullName, '-ss', $startTime, '-map', '0')
-            If ($endTime) { $FFMPEG_filePathArgs += @('-to', $endTime) }
-            $FFMPEG_filePathArgs += @('-c', 'copy', $outputPath)
+				& $FFMPEG_filePath @FFMPEG_Args > $null 2>&1
+				Start-Process $outputPath
 
-            & $FFMPEG_filePath @ffmpegArgs > $null 2>&1
-            Start-Process $outputPath
-
-			Write-Host "`tCreated '$outputFileName'" -ForegroundColor Green
+				Write-Host "`tCreated '$outputFileName'" -ForegroundColor Green
+			} Catch {
+				Write-Host "`tSomething went wrong creating '$outputFileName'. Error: $_" -ForegroundColor Red
+			}
 			
 			Do {
                 $keep = Read-Host "`tKeep clip? (y/n)"
