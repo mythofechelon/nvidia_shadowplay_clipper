@@ -11,14 +11,16 @@ If (-Not $FFMPEG_filePath) {
 $environmentVariable_NVIDIA = "NVIDIA_LAST_PATH"
 
 While ($True) {
-    Do {
-        If (${Env:$environmentVariable_NVIDIA}){
-			$folderPathInput = (Read-Host "`nEnter input folder path (leave blank to re-use '${Env:$environmentVariable_NVIDIA}')").Trim('"', "'")
+    $lastPath = [Environment]::GetEnvironmentVariable($environmentVariable_NVIDIA, "User")
+	
+	Do {
+        If ($lastPath) {
+			$folderPathInput = (Read-Host "`nEnter input folder path (leave blank to re-use '$lastPath')").Trim('"', "'")
 			
 			If ($folderPathInput){
 				$folderPath = $folderPathInput
 			} Else {
-				$folderPath = ${Env:$environmentVariable_NVIDIA}
+				$folderPath = $lastPath
 			}
 		} Else {
 			$folderPath = Read-Host "`nEnter input folder path".Trim('"', "'")
@@ -30,7 +32,7 @@ While ($True) {
 		
     } While (-Not (Test-Path $folderPath -PathType Container))
 	
-	If (${Env:$environmentVariable_NVIDIA} -NE $folderPath) {
+	If ($lastPath -NE $folderPath) {
 		Write-Host "`tRemembering path for next time..."
 		setx $environmentVariable_NVIDIA $folderPath > $Null
 		${Env:$environmentVariable_NVIDIA} = $folderPath
@@ -55,19 +57,37 @@ While ($True) {
     For ($i = 0; $i -LT $videoFiles.Count; $i++) {
         $file = $videoFiles[$i]
 		
-        Write-Host "`nProcessing file $($i + 1) of $($videoFiles.Count): '$($file.Name)'"
+		$FFMPEG_Output = & $FFMPEG_filePath -i $file.FullName 2>&1 | Out-String
+
+		If ($FFMPEG_Output -Match 'Duration:\s*(\d{2}:\d{2}:\d{2})') {
+			$duration = $Matches[1]
+		}
+		
+        $processingOutput = "`nProcessing file $($i + 1) of $($videoFiles.Count): '$($file.Name)'"
+		
+		If ($duration) {
+			$processingOutput += " ($duration)"
+		}
+		
+		Write-Host $processingOutput
 
         Start-Process $file.FullName
 
         While ($True) {
-            $action = Read-Host "`tTrim or delete or none? (t/d/n)"
+            $action = Read-Host "`tRe-open, trim, delete, none? (r/t/d/n)"
             
-			If ($action -NotMatch '^[TtDdNn]$') {
-                Write-Host "`tEnter 't' or 'd' or 'n'" -ForegroundColor Red
-            } Else {
+			If ($action -Match '^[Rr]$') {
+				Start-Process $file.FullName
+				Write-Host ""
+				Continue
+			} ElseIf ($action -NotMatch '^[TtDdNn]$') {
+                Write-Host "`tEnter 'r', 't', 'd', or 'n'" -ForegroundColor Red
+			} Else {
 				Break
 			}
         }
+		
+		
 
         If ($action -Match '^[Dd]$') {
             $shell = New-Object -ComObject Shell.Application
@@ -131,25 +151,30 @@ While ($True) {
 				If ($endTime) { $FFMPEG_Args += @('-to', $endTime) }
 				$FFMPEG_Args += @('-c', 'copy', $outputPath)
 
-				& $FFMPEG_filePath @FFMPEG_Args > $null 2>&1
-				Start-Process $outputPath
+				$FFMPEG_Output = & $FFMPEG_filePath @FFMPEG_Args 2>&1
 
-				Write-Host "`tCreated '$outputFileName'" -ForegroundColor Green
+				If (($LASTEXITCODE -NE 0) -Or -Not (Test-Path -LiteralPath $outputPath)) {
+					Throw ($FFMPEG_Output | Out-String)
+				} Else {
+					Write-Host "`tCreated '$outputFileName'" -ForegroundColor Green
+					
+					Start-Process -FilePath $outputPath
+					
+					Do {
+						$keep = Read-Host "`tKeep clip? (y/n)"
+						If ($keep -NotMatch '^[YyNn]$') {
+							Write-Host "`tEnter 'y' or 'n'" -ForegroundColor Red
+						}
+					} While ($keep -NotMatch '^[YyNn]$')
+					
+					If ($keep -Match '^[Nn]') {
+						$shell = New-Object -ComObject Shell.Application
+						$shell.Namespace(0xA).MoveHere($outputPath)
+						Write-Host "`tDeleted to Recycle Bin"
+					}
+				}
 			} Catch {
 				Write-Host "`tSomething went wrong creating '$outputFileName'. Error: $_" -ForegroundColor Red
-			}
-			
-			Do {
-                $keep = Read-Host "`tKeep clip? (y/n)"
-                If ($keep -NotMatch '^[YyNn]$') {
-                    Write-Host "`tEnter 'y' or 'n'" -ForegroundColor Red
-                }
-            } While ($keep -NotMatch '^[YyNn]$')
-			
-			If ($keep -Match '^[Nn]') {
-				$shell = New-Object -ComObject Shell.Application
-				$shell.Namespace(0xA).MoveHere($outputPath)
-				Write-Host "`tDeleted to Recycle Bin"
 			}
 
             Do {
@@ -158,6 +183,10 @@ While ($True) {
                     Write-Host "`tEnter 'y' or 'n'." -ForegroundColor Red
                 }
             } While ($another -NotMatch '^[YyNn]$')
+			
+			If ($another -Match '^[Yy]$') {
+				Start-Process $file.FullName
+			}
 			
         } While ($another -Match '^[Yy]$')
 
