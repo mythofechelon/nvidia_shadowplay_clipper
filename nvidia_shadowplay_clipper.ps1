@@ -43,9 +43,8 @@ While ($True) {
     $videoFiles = Get-ChildItem -Path $folderPath -File |
                   Where-Object {
                       ($supportedExtensions -Contains $_.Extension.ToLower()) -And
-                      ($_.BaseName -Match 'DVR$') # Unprocessed.
+                      ($_.BaseName -Match 'DVR$|^Veyra.*\d{6}$') # Unprocessed.
                   }
-				  # "Fallout - New Vegas 2025.11.21 - 22.26.01.21.DVR.mp4"
 
     If (-Not $videoFiles) {
         Write-Host "`tNo unprocessed video files found in folder." -ForegroundColor Yellow
@@ -148,10 +147,30 @@ While ($True) {
 				$outputPath = Join-Path $file.DirectoryName $outputFileName
 
 				$FFMPEG_Args = @('-y', '-hide_banner', '-loglevel', 'error', '-i', $file.FullName, '-ss', $startTime, '-map', '0')
+				
 				If ($endTime) { $FFMPEG_Args += @('-to', $endTime) }
+				
+				<#
+				Do {
+					$compress = Read-Host "`tCompress to x265? (y/n)"
+					If ($compress -NotMatch '^[YyNn]$') {
+						Write-Host "`tEnter 'y' or 'n'" -ForegroundColor Red
+					}
+				} While ($compress -NotMatch '^[YyNn]$')
+				
+				If ($compress -Match '^[Yy]') {
+					$FFMPEG_Args += @('-stats', '-x265-params', 'log-level=error', '-c:v', 'libx265', '-preset', 'medium', '-crf', '24', '-c:a', 'copy')
+				} Else {
+					$FFMPEG_Args += @('-c', 'copy')
+				}
+				
+				$FFMPEG_Args += @($outputPath)
+				#>
+				
 				$FFMPEG_Args += @('-c', 'copy', $outputPath)
+				
 
-				$FFMPEG_Output = & $FFMPEG_filePath @FFMPEG_Args 2>&1
+				$FFMPEG_Output = & $FFMPEG_filePath @FFMPEG_Args
 
 				If (($LASTEXITCODE -NE 0) -Or -Not (Test-Path -LiteralPath $outputPath)) {
 					Throw ($FFMPEG_Output | Out-String)
